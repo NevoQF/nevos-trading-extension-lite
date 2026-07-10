@@ -86,24 +86,21 @@ cd nevos-trading-extension-lite
 
 ## Source
 
-The readable extension source is in `extension/`.
-
-## Build (local)
-
-From the repo root, after installing `terser` in this workspace (or setting `NTE_TERSER_PATH`):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File "tools\build-release.ps1"
-```
-
-Outputs minified browser zips under `dist/`.
+The readable extension source is in `extension/`. Internal release packaging tools are intentionally excluded from this public source repo.
 
 ## Layout
 
 ```text
 extension/            extension source
-tools/                local release build scripts
 ```
+
+## Privacy
+
+See `PRIVACY.md`.
+
+## Security
+
+See `SECURITY.md`.
 
 ## License
 

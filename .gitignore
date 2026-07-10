@@ -1,8 +1,17 @@
 .DS_Store
 Thumbs.db
+desktop.ini
 node_modules/
 dist/
 *.log
 .idea/
 .vscode/
 *.zip
+*.xpi
+*.crx
+*.pem
+.env
+.env.*
+
+# Never publish release packaging scripts in this public LITE source repo.
+tools/
