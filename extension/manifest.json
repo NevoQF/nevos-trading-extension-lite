@@ -115,7 +115,9 @@
       ],
       "matches": [
         "https://www.roblox.com/users/friends*",
-        "https://www.roblox.com/*/users/friends*"
+        "https://www.roblox.com/users/*/friends*",
+        "https://www.roblox.com/*/users/friends*",
+        "https://www.roblox.com/*/users/*/friends*"
       ],
       "run_at": "document_idle"
     },

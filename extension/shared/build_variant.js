@@ -1,4 +1,4 @@
-﻿/* LITE build — client-side only (Roblox + Rolimons). */
+/* LITE build — client-side only (Roblox + Rolimons). */
 const NTE_IS_LITE = true;
 const NTE_LITE_DROP_OPTION_PATHS = [
   "show-usd-values",

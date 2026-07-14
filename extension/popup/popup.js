@@ -571,26 +571,9 @@ async function prompt_inbound_trade_notification_min_gain() {
 }
 
 function normalize_inbound_trade_notification_webhook_url(value) {
-  let raw = String(value || "").trim();
-  if (!raw) return "";
-  try {
-    let parsed = new URL(raw);
-    let host = String(parsed.hostname || "").toLowerCase();
-    let valid_host =
-      host === "discord.com" ||
-      host === "www.discord.com" ||
-      host === "canary.discord.com" ||
-      host === "ptb.discord.com" ||
-      host === "discordapp.com" ||
-      host === "www.discordapp.com";
-    if (!valid_host) return "";
-    if (parsed.protocol !== "https:") return "";
-    if (!String(parsed.pathname || "").startsWith("/api/webhooks/")) return "";
-    return parsed.toString();
-  } catch {
-    return "";
-  }
+  return "";
 }
+
 
 function normalize_inbound_trade_notification_discord_id(value) {
   let normalized = String(value || "")
@@ -612,23 +595,9 @@ function open_inbound_trade_notification_settings_modal(current) {
     let overlay = document.createElement("div");
     overlay.id = "inbound-notif-settings-overlay";
     overlay.className = "inbound-notif-settings-overlay";
-    let webhook_block = lite
-      ? `<div class="inbound-notif-settings-group inbound-notif-lite-note">
+    let webhook_block = `<div class="inbound-notif-settings-group inbound-notif-lite-note">
             <span class="inbound-notif-settings-label">Discord webhooks</span>
             <p class="inbound-notif-settings-subtitle">Not included in LITE. Browser notifications still work.</p>
-          </div>`
-      : `<div class="inbound-notif-settings-group">
-            <label class="inbound-notif-switch-row">
-              <span>Notify to a Discord webhook</span>
-              <input id="inbound-notif-webhook-enabled" type="checkbox" ${current.webhook_enabled ? "checked" : ""} />
-            </label>
-            <input id="inbound-notif-webhook-url" class="inbound-notif-text-input" type="url" placeholder="https://discord.com/api/webhooks/..." value="${escape_html_attr(current.webhook_url)}" />
-
-            <label class="inbound-notif-switch-row inbound-notif-switch-row-sub">
-              <span>Ping the user</span>
-              <input id="inbound-notif-ping-enabled" type="checkbox" ${current.ping_enabled ? "checked" : ""} />
-            </label>
-            <input id="inbound-notif-discord-id" class="inbound-notif-text-input" type="text" inputmode="numeric" placeholder="Discord user ID" value="${escape_html_attr(current.discord_id)}" />
           </div>`;
     overlay.innerHTML = `
       <div class="inbound-notif-settings-card" role="dialog" aria-modal="true" aria-labelledby="inbound-settings-title">
@@ -659,10 +628,7 @@ function open_inbound_trade_notification_settings_modal(current) {
         <div class="inbound-notif-settings-actions">
           <button type="button" class="inbound-notif-btn inbound-notif-btn-cancel" data-role="cancel">Cancel</button>
           <button type="button" class="inbound-notif-btn inbound-notif-btn-save" data-role="save">Save</button>
-          ${lite ? "" : `<button type="button" class="inbound-notif-btn inbound-notif-btn-test" data-role="test">
-            <span class="inbound-notif-btn-test-icon" aria-hidden="true">▶</span>
-            <span class="inbound-notif-btn-test-label" data-role="test-label">Test webhook</span>
-          </button>`}
+          
         </div>
       </div>
     `;
@@ -5044,8 +5010,7 @@ const required_origins = (() => {
     "https://api.rolimons.com/*",
     "https://www.rolimons.com/*",
     "https://rolimons.com/*",
-    "https://nevos-extension.com/*",
-    "https://www.nevos-extension.com/*",
+
     "https://www.roblox.com/*",
     "https://roblox.com/*",
     "https://auth.roblox.com/*",
