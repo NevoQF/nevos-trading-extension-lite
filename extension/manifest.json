@@ -136,7 +136,8 @@
     {
       "js": [
         "shared/browser_compat.js",
-        "content/navbar_quick_search.js"
+        "content/navbar_quick_search.js",
+        "content/navbar_people_search.js"
       ],
       "matches": [
         "https://www.roblox.com/*",
@@ -154,6 +155,17 @@
         "https://roblox.com/*"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "shared/browser_compat.js",
+        "content/rolimons_player_page.js"
+      ],
+      "matches": [
+        "https://www.rolimons.com/player/*",
+        "https://rolimons.com/player/*"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "description": "Client-side Roblox trading tools. Values from Rolimons. No backend required.",
@@ -166,10 +178,13 @@
     "https://auth.roblox.com/*",
     "https://trades.roblox.com/*",
     "https://users.roblox.com/*",
+    "https://friends.roblox.com/*",
+    "https://presence.roblox.com/*",
     "https://inventory.roblox.com/*",
     "https://catalog.roblox.com/*",
     "https://economy.roblox.com/*",
     "https://apis.roblox.com/*",
+    "https://twostepverification.roblox.com/*",
     "https://thumbnails.roblox.com/*"
   ],
   "icons": {
@@ -193,7 +208,7 @@
     "cookies"
   ],
   "short_name": "Nevos LITE",
-  "version": "3.10.43",
+  "version": "3.10.44",
   "web_accessible_resources": [
     {
       "matches": [

@@ -58,12 +58,13 @@ if (typeof importScripts === "function") {
     importScripts("../shared/trade_ad_notifications_core.js");
     importScripts("trade_ad_notifications.js");
     importScripts("inbound_trade_webhook_preview.js");
+    importScripts("mass_send.js");
   }
 }
 
 const option_groups = nte_filter_option_groups(
   JSON.parse(
-    '["Values",{"name":"Values on Trading Window","enabledByDefault":true,"path":"values-on-trading-window"},{"name":"Values on Trade Lists","enabledByDefault":true,"path":"values-on-trade-lists"},{"name":"Values on Catalog Pages","enabledByDefault":true,"path":"values-on-catalog-pages"},{"name":"Values on User Pages","enabledByDefault":true,"path":"values-on-user-pages"},{"name":"Show Routility USD Values","enabledByDefault":false,"path":"show-usd-values"},"Trading",{"name":"Trade Win/Loss Stats","enabledByDefault":true,"path":"trade-win-loss-stats"},{"name":"Colorblind Mode","enabledByDefault":false,"path":"colorblind-profit-mode"},{"name":"Trade Window Search","enabledByDefault":true,"path":"trade-window-search"},{"name":"Duplicate Trade Warning","enabledByDefault":true,"path":"duplicate-trade-warning"},{"name":"Miss Send Warning","enabledByDefault":true,"path":"miss-send-warning"},{"name":"Show Quick Decline Button","enabledByDefault":true,"path":"show-quick-decline-button"},{"name":"Analyze Trade","enabledByDefault":true,"path":"analyze-trade"},{"name":"Quick Proof","enabledByDefault":true,"path":"quick-proof"},{"name":"Reseller Trade Button","enabledByDefault":true,"path":"reseller-trade-button"},"Trade Notifications",{"name":"Inbound Trade Notifications","enabledByDefault":false,"path":"inbound-trade-notifications"},{"name":"Declined Trade Notifications","enabledByDefault":false,"path":"declined-trade-notifications"},{"name":"Completed Trade Notifications","enabledByDefault":false,"path":"completed-trade-notifications"},"Item Flags",{"name":"Flag Rare Items","enabledByDefault":true,"path":"flag-rare-items"},{"name":"Flag Projected Items","enabledByDefault":true,"path":"flag-projected-items"},"Links",{"name":"Add Item Profile Links","enabledByDefault":true,"path":"add-item-profile-links"},{"name":"Add Item Ownership Buttons","enabledByDefault":true,"path":"add-uaid-links"},{"name":"Add User Profile Links","enabledByDefault":true,"path":"add-user-profile-links"},"Other",{"name":"Post-Tax Trade Values","enabledByDefault":true,"path":"post-tax-trade-values"},{"name":"Mobile Trade Items Button","enabledByDefault":true,"path":"mobile-trade-items-button"},{"name":"Disable Win/Loss Stats RAP","enabledByDefault":false,"path":"disable-win-loss-stats-rap"}]',
+    '["Values",{"name":"Values on Trading Window","enabledByDefault":true,"path":"values-on-trading-window"},{"name":"Values on Trade Lists","enabledByDefault":true,"path":"values-on-trade-lists"},{"name":"Values on Catalog Pages","enabledByDefault":true,"path":"values-on-catalog-pages"},{"name":"Values on User Pages","enabledByDefault":true,"path":"values-on-user-pages"},{"name":"Show Routility USD Values","enabledByDefault":false,"path":"show-usd-values"},"Trading",{"name":"Trade Win/Loss Stats","enabledByDefault":true,"path":"trade-win-loss-stats"},{"name":"Colorblind Mode","enabledByDefault":false,"path":"colorblind-profit-mode"},{"name":"Trade Window Search","enabledByDefault":true,"path":"trade-window-search"},{"name":"Duplicate Trade Warning","enabledByDefault":true,"path":"duplicate-trade-warning"},{"name":"Miss Send Warning","enabledByDefault":true,"path":"miss-send-warning"},{"name":"Show Quick Decline Button","enabledByDefault":true,"path":"show-quick-decline-button"},{"name":"Analyze Trade","enabledByDefault":true,"path":"analyze-trade"},{"name":"Quick Proof","enabledByDefault":true,"path":"quick-proof"},{"name":"Reseller Trade Button","enabledByDefault":true,"path":"reseller-trade-button"},"Trade Notifications",{"name":"Inbound Trade Notifications","enabledByDefault":false,"path":"inbound-trade-notifications"},{"name":"Declined Trade Notifications","enabledByDefault":false,"path":"declined-trade-notifications"},{"name":"Completed Trade Notifications","enabledByDefault":false,"path":"completed-trade-notifications"},"Item Flags",{"name":"Flag Rare Items","enabledByDefault":true,"path":"flag-rare-items"},{"name":"Flag Projected Items","enabledByDefault":true,"path":"flag-projected-items"},"Links",{"name":"Add Item Profile Links","enabledByDefault":true,"path":"add-item-profile-links"},{"name":"Add Item Ownership Buttons","enabledByDefault":true,"path":"add-uaid-links"},{"name":"Add User Profile Links","enabledByDefault":true,"path":"add-user-profile-links"},"Other",{"name":"Post-Tax Trade Values","enabledByDefault":true,"path":"post-tax-trade-values"},{"name":"Mobile Trade Items Button","enabledByDefault":true,"path":"mobile-trade-items-button"},{"name":"Disable Win/Loss Stats RAP","enabledByDefault":false,"path":"disable-win-loss-stats-rap"},{"name":"Quick Item Search","enabledByDefault":true,"path":"quick-item-search"},{"name":"Quick People Search","enabledByDefault":true,"path":"quick-people-search"},{"name":"Fix Rolimons Pages","enabledByDefault":true,"path":"fix-rolimons-pages"}]',
   ),
 );
 const legacy_show_usd_values_option_name = "Show USD Values";
@@ -634,7 +635,11 @@ async function sync_item_data_from_server() {
 }
 
 
+let item_data_refresh_promise = null;
+
 async function get_cached_item_data(max_age_ms = 300000) {
+  if (item_data_refresh_promise) return item_data_refresh_promise;
+
   let { [item_data_key]: data, [item_data_time_key]: last_request } =
     await get_local_values([item_data_key, item_data_time_key]);
 
@@ -646,23 +651,32 @@ async function get_cached_item_data(max_age_ms = 300000) {
     return data;
   }
 
-  let fresh_data = null;
-  if (!fresh_data) {
-    try {
-      fresh_data = await fetch_item_data();
-    } catch {}
-  }
-  if (fresh_data) {
-    return cache_item_data(fresh_data);
-  }
+  if (item_data_refresh_promise) return item_data_refresh_promise;
 
-  if (has_item_data(data)) {
+  item_data_refresh_promise = (async () => {
+    let fresh_data = null;
+    if (!fresh_data) {
+      try {
+        fresh_data = await fetch_item_data();
+      } catch {}
+    }
+    if (fresh_data) {
+      return cache_item_data(fresh_data);
+    }
+
+    let stored = await get_local_values([item_data_key]);
+    if (has_item_data(stored?.[item_data_key])) {
+      start_item_data_retry();
+      return stored[item_data_key];
+    }
+
     start_item_data_retry();
-    return data;
-  }
+    return null;
+  })().finally(() => {
+    item_data_refresh_promise = null;
+  });
 
-  start_item_data_retry();
-  return null;
+  return item_data_refresh_promise;
 }
 
 async function get_trade_ad_notification_item_data() {
@@ -2015,9 +2029,330 @@ async function fetch_authenticated_user() {
 }
 
 
+let rolimons_player_info_cache = new Map();
+let rolimons_player_info_inflight = new Map();
+const rolimons_player_info_ttl_ms = 15 * 60 * 1000;
+const rolimons_player_info_cache_max = 200;
+
+function prune_rolimons_player_info_cache() {
+  if (rolimons_player_info_cache.size <= rolimons_player_info_cache_max) return;
+  let drop = rolimons_player_info_cache.size - rolimons_player_info_cache_max;
+  for (let key of rolimons_player_info_cache.keys()) {
+    rolimons_player_info_cache.delete(key);
+    drop -= 1;
+    if (drop <= 0) break;
+  }
+}
+
+async function fetch_rolimons_player_info(user_id) {
+  let id = String(user_id || "").trim();
+  if (!/^\d+$/.test(id)) return { ok: false, error: "bad_id" };
+
+  let cached = rolimons_player_info_cache.get(id);
+  if (cached && Date.now() - cached.at < rolimons_player_info_ttl_ms) {
+    return { ok: true, ...cached };
+  }
+  if (rolimons_player_info_inflight.has(id)) {
+    return rolimons_player_info_inflight.get(id);
+  }
+
+  let job = (async () => {
+    try {
+      let res = await fetch(`https://www.rolimons.com/player/${id}`, {
+        cache: "no-store",
+        credentials: "omit",
+        headers: {
+          "From-Extension": true,
+          Accept: "text/html",
+        },
+      });
+      if (!res.ok) return { ok: false, error: `http_${res.status}` };
+      let html = await res.text();
+      let m = html.match(
+        /"num_points":\d+,"nominal_scan_time":\[[\d,]+\],"value":\[([\d,]+)\],"rap":\[([\d,]+)\]/,
+      );
+      if (!m) return { ok: false, error: "bad_payload" };
+      let values = m[1].split(",");
+      let raps = m[2].split(",");
+      let value = Number(values[values.length - 1]) || 0;
+      let rap = Number(raps[raps.length - 1]) || 0;
+      let name_m = html.match(/"player_name":"([^"]*)"/);
+      let name = name_m ? name_m[1] : "";
+      let terminated = /terminated/i.test(html.slice(0, 8000));
+      let rec = {
+        ok: true,
+        value,
+        rap,
+        rank: 0,
+        privacy_enabled: false,
+        terminated,
+        premium: false,
+        name,
+        data: {
+          success: true,
+          value,
+          rap,
+          name,
+          terminated,
+          privacy_enabled: false,
+        },
+        at: Date.now(),
+      };
+      rolimons_player_info_cache.set(id, rec);
+      prune_rolimons_player_info_cache();
+      return rec;
+    } catch {
+      return { ok: false, error: "exception" };
+    } finally {
+      rolimons_player_info_inflight.delete(id);
+    }
+  })();
+
+  rolimons_player_info_inflight.set(id, job);
+  return job;
+}
+
+let roblox_friends_cache = null;
+let roblox_friends_cache_at = 0;
+let roblox_friends_inflight = null;
+const roblox_friends_ttl_ms = 30 * 60 * 1000;
+
+async function hydrate_roblox_friend_names(friends) {
+  let list = Array.isArray(friends) ? friends.slice() : [];
+  let need = list.filter((row) => row.userId > 0 && !String(row.name || "").trim());
+  if (!need.length) {
+    return list.filter((row) => row.userId > 0 && String(row.name || "").trim());
+  }
+
+  let by_id = new Map(list.map((row) => [row.userId, { ...row, isFriend: true }]));
+  for (let i = 0; i < need.length; i += 100) {
+    let ids = need.slice(i, i + 100).map((row) => row.userId);
+    let filled = false;
+    try {
+      let res = await fetch(
+        "https://apis.roblox.com/user-profile-api/v1/user/profiles/get-profiles",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            userIds: ids,
+            fields: ["names.username", "names.displayName"],
+          }),
+        },
+      );
+      if (res.ok) {
+        let json = await res.json().catch(() => null);
+        for (let profile of json?.profileDetails || []) {
+          let id = Number(profile.userId) || 0;
+          let prev = by_id.get(id);
+          if (!prev) continue;
+          let name = String(profile.names?.username || "");
+          if (!name) continue;
+          by_id.set(id, {
+            ...prev,
+            name,
+            displayName: String(profile.names?.displayName || name),
+            isFriend: true,
+          });
+          filled = true;
+        }
+      }
+    } catch {}
+
+    if (filled) continue;
+
+    try {
+      let res = await fetch("https://users.roblox.com/v1/users", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          userIds: ids,
+          excludeBannedUsers: false,
+        }),
+      });
+      if (!res.ok) continue;
+      let json = await res.json().catch(() => null);
+      for (let row of json?.data || []) {
+        let id = Number(row.id) || 0;
+        let prev = by_id.get(id);
+        if (!prev) continue;
+        let name = String(row.name || "");
+        if (!name) continue;
+        by_id.set(id, {
+          ...prev,
+          name,
+          displayName: String(row.displayName || name),
+          isFriend: true,
+        });
+      }
+    } catch {}
+  }
+
+  return [...by_id.values()].filter(
+    (row) => row.userId > 0 && String(row.name || "").trim(),
+  );
+}
+
+async function fetch_roblox_friends_list() {
+  if (
+    roblox_friends_cache?.length &&
+    roblox_friends_cache.every((row) => row.userId > 0 && String(row.name || "").trim()) &&
+    Date.now() - roblox_friends_cache_at < roblox_friends_ttl_ms
+  ) {
+    return { ok: true, friends: roblox_friends_cache };
+  }
+  if (roblox_friends_inflight) return roblox_friends_inflight;
+
+  roblox_friends_inflight = (async () => {
+    try {
+      let me = await fetch("https://users.roblox.com/v1/users/authenticated", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!me.ok) return { ok: false, friends: [], error: `me_${me.status}` };
+      let me_json = await me.json().catch(() => null);
+      let my_id = Number(me_json?.id) || 0;
+      if (!my_id) return { ok: false, friends: [], error: "no_user" };
+
+      let res = await fetch(
+        `https://friends.roblox.com/v1/users/${my_id}/friends`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!res.ok) {
+        return { ok: false, friends: [], error: `friends_${res.status}` };
+      }
+      let json = await res.json().catch(() => null);
+      let friends = await hydrate_roblox_friend_names(
+        (Array.isArray(json?.data) ? json.data : [])
+          .map((row) => ({
+            userId: Number(row.id) || 0,
+            name: String(row.name || ""),
+            displayName: String(row.displayName || row.name || ""),
+            isFriend: true,
+          }))
+          .filter((row) => row.userId > 0),
+      );
+      roblox_friends_cache = friends;
+      roblox_friends_cache_at = Date.now();
+      return { ok: true, friends };
+    } catch {
+      return { ok: false, friends: [], error: "exception" };
+    } finally {
+      roblox_friends_inflight = null;
+    }
+  })();
+
+  return roblox_friends_inflight;
+}
+
+async function fetch_rolimons_player_tradable(user_id) {
+  let id = String(user_id || "").trim();
+  if (!/^\d+$/.test(id)) return [];
+  let items = [];
+  let cursor = "";
+  let limit = "100";
+  for (let page = 0; page < 100; page++) {
+    let params = new URLSearchParams({
+      sortBy: "CreationTime",
+      limit,
+      sortOrder: "Desc",
+    });
+    if (cursor) params.set("cursor", cursor);
+    let url = `https://trades.roblox.com/v2/users/${id}/tradableitems?${params.toString()}`;
+    let res = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        res = await fetch(url, { credentials: "include" });
+      } catch {
+        res = null;
+      }
+      if (res && res.status !== 429 && res.status < 500) break;
+      if (attempt < 2) await sleep_for(350 * (attempt + 1));
+    }
+    if (!res) break;
+    if (res.status === 401 || res.status === 403) return items;
+    if (res.status === 500 && limit === "100") {
+      limit = "50";
+      continue;
+    }
+    if (!res.ok) break;
+    let data = await res.json().catch(() => null);
+    if (!data) break;
+    items = items.concat(Array.isArray(data.items) ? data.items : []);
+    cursor = data.nextPageCursor || "";
+    if (!cursor) break;
+  }
+  return items;
+}
+
+let rolimons_player_face_map_cache = null;
+let rolimons_player_face_map_at = 0;
+
+async function fetch_rolimons_player_face_map() {
+  let now = Date.now();
+  if (
+    rolimons_player_face_map_cache &&
+    now - rolimons_player_face_map_at < 30 * 60 * 1000
+  ) {
+    return rolimons_player_face_map_cache;
+  }
+  let res = await fetch(
+    "https://api.rolimons.com/items/v1/faceassetbundlemap",
+    { cache: "no-store" },
+  );
+  if (!res.ok) return rolimons_player_face_map_cache || {};
+  let data = await res.json().catch(() => null);
+  let map =
+    data?.face_asset_bundle_map && typeof data.face_asset_bundle_map === "object"
+      ? data.face_asset_bundle_map
+      : {};
+  rolimons_player_face_map_cache = map;
+  rolimons_player_face_map_at = now;
+  return map;
+}
+
+async function fetch_rolimons_player_thumbs(ids, is_bundles) {
+  let list = [
+    ...new Set(
+      (Array.isArray(ids) ? ids : [])
+        .map((id) => String(id || "").trim())
+        .filter((id) => /^\d+$/.test(id)),
+    ),
+  ];
+  let out = {};
+  if (!list.length) return out;
+  for (let i = 0; i < list.length; i += 100) {
+    let chunk = list.slice(i, i + 100);
+    let url = is_bundles
+      ? `https://thumbnails.roblox.com/v1/bundles/thumbnails?bundleIds=${chunk.join(",")}&size=150x150&format=Png&isCircular=false`
+      : `https://thumbnails.roblox.com/v1/assets?assetIds=${chunk.join(",")}&size=150x150&format=Png&isCircular=false`;
+    let res = await fetch(url).catch(() => null);
+    if (!res?.ok) continue;
+    let data = await res.json().catch(() => ({}));
+    for (let row of data.data || []) {
+      let tid = String(row?.targetId || "");
+      let image_url = String(row?.imageUrl || "").trim();
+      if (tid && image_url) out[tid] = image_url;
+    }
+  }
+  return out;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (typeof trade_ad_notif_handle_message === "function") {
     let handled = trade_ad_notif_handle_message(message, respond);
+    if (handled) return handled;
+  }
+  if (typeof mass_send_handle_message === "function") {
+    let handled = mass_send_handle_message(message, respond);
     if (handled) return handled;
   }
 
@@ -2208,7 +2543,14 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
 
   if (message?.title === "getUserProfileData") {
-    respond({});
+    (async () => {
+      try {
+        let info = await fetch_rolimons_player_info(message.userId);
+        respond(info?.ok ? info.data : {});
+      } catch {
+        respond({});
+      }
+    })();
     return true;
   }
 
@@ -2236,6 +2578,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       let missing = ids.map(String).filter((id) => !(id in cached));
       if (!missing.length) return respond({ ok: true, fetched: 0 });
       let fetched = 0;
+      let dirty = false;
       for (let id of missing) {
         try {
           let resp = await fetch_trade_api(
@@ -2246,9 +2589,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
             let trade = await resp.json();
             if (status_map[id]) trade.status = status_map[id];
             if (trade_type) trade.tradeType = trade_type;
-            cached = await get_pruned_cached_trades();
             if (cache_trade_detail(cached, id, trade)) {
-              await save_cached_trades(cached);
+              dirty = true;
               fetched++;
             }
           } else if (429 === resp.status) {
@@ -2258,6 +2600,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         } catch {}
         await new Promise((r) => setTimeout(r, 2500));
       }
+      if (dirty) await save_cached_trades(cached);
       respond({ ok: true, fetched });
     })();
     return true;
@@ -2335,6 +2678,81 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     trade_row_decline_trade(message.trade_id || message.tradeId).then(
       (result) => respond(result),
     );
+    return true;
+  }
+
+  if (message?.type === "rolimons_player_info") {
+    (async () => {
+      try {
+        respond(await fetch_rolimons_player_info(message.user_id));
+      } catch (error) {
+        respond({
+          ok: false,
+          error: error?.message || String(error),
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "roblox_friends_list") {
+    (async () => {
+      try {
+        respond(await fetch_roblox_friends_list());
+      } catch (error) {
+        respond({
+          ok: false,
+          friends: [],
+          error: error?.message || String(error),
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "rolimons_player_tradable") {
+    (async () => {
+      try {
+        respond({
+          ok: true,
+          items: await fetch_rolimons_player_tradable(message.user_id),
+        });
+      } catch (error) {
+        respond({
+          ok: false,
+          items: [],
+          error: error?.message || String(error),
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "rolimons_player_face_map") {
+    (async () => {
+      try {
+        respond({ ok: true, map: await fetch_rolimons_player_face_map() });
+      } catch {
+        respond({ ok: false, map: {} });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "rolimons_player_thumbs") {
+    (async () => {
+      try {
+        respond({
+          ok: true,
+          thumbs: await fetch_rolimons_player_thumbs(
+            message.ids,
+            !!message.is_bundles,
+          ),
+        });
+      } catch {
+        respond({ ok: false, thumbs: {} });
+      }
+    })();
     return true;
   }
 
