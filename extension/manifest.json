@@ -136,6 +136,8 @@
     {
       "js": [
         "shared/browser_compat.js",
+        "shared/rolimons_item_details.js",
+        "content/navbar_search_keyboard.js",
         "content/navbar_quick_search.js",
         "content/navbar_people_search.js"
       ],
@@ -208,7 +210,7 @@
     "cookies"
   ],
   "short_name": "Nevos LITE",
-  "version": "3.10.44",
+  "version": "3.10.45",
   "web_accessible_resources": [
     {
       "matches": [
