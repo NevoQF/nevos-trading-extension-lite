@@ -25,6 +25,8 @@
 
 Release builds stay minified. This repo keeps the readable source, manifests, and assets.
 
+Each version is tagged (`v3.10.48`) and published as a [GitHub Release](https://github.com/NevoQF/nevos-trading-extension-lite/releases) with the store zip files and SHA-256 checksums. See [VERIFY.md](VERIFY.md).
+
 ## What It Is
 
 nevos trading extension lite is a client-side Roblox trading extension for Chrome, Brave, Edge, Opera, Firefox, and Safari. It talks only to Roblox and Rolimons — no private backend, no third-party value proxies, no Discord webhooks.
@@ -86,7 +88,7 @@ cd nevos-trading-extension-lite
 
 ## Source
 
-The readable extension source is in `extension/`. Internal release packaging tools are intentionally excluded from this public source repo.
+The readable extension source is in `extension/`. Internal release packaging tools are intentionally excluded from this public source repo. Tagged releases and checksums are in [Releases](https://github.com/NevoQF/nevos-trading-extension-lite/releases). How to check a zip: [VERIFY.md](VERIFY.md).
 
 ## Layout
 
