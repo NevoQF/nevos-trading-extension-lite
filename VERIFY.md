@@ -2,11 +2,11 @@
 
 Each published version is tagged as `vX.Y.Z` and has a GitHub Release with the store zip files plus `SHA256SUMS.txt`.
 
-Example: [v3.10.48](https://github.com/NevoQF/nevos-trading-extension-lite/releases/tag/v3.10.48)
+Example: [v3.10.49](https://github.com/NevoQF/nevos-trading-extension-lite/releases/tag/v3.10.49)
 
 ## What the tag means
 
-`v3.10.48` points at the readable source in this repo for that version. The zip files on that release are the packages uploaded to [the website](https://nevos-extension.com/lite.html) and submitted to browser stores.
+`v3.10.49` points at the readable source in this repo for that version. The zip files on that release are the packages uploaded to [the website](https://nevos-extension.com/lite.html) and submitted to browser stores.
 
 ## Check a zip
 
@@ -14,7 +14,7 @@ Example: [v3.10.48](https://github.com/NevoQF/nevos-trading-extension-lite/relea
 2. Hash it:
 
 ```powershell
-Get-FileHash .\nevos-trading-extension-lite-chrome-v3.10.48.zip -Algorithm SHA256
+Get-FileHash .\nevos-trading-extension-lite-chrome-v3.10.49.zip -Algorithm SHA256
 ```
 
 3. Compare that SHA-256 to the matching row in `SHA256SUMS.txt` on the same release.

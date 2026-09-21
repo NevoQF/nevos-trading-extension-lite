@@ -216,6 +216,7 @@
   ],
   "description": "Client-side Roblox trading tools. Values from Rolimons. No backend required.",
   "host_permissions": [
+    "<all_urls>",
     "https://api.rolimons.com/*",
     "https://www.rolimons.com/*",
     "https://rolimons.com/*",
@@ -250,11 +251,10 @@
     "storage",
     "alarms",
     "notifications",
-    "activeTab",
-    "cookies"
+    "activeTab"
   ],
   "short_name": "Nevos LITE",
-  "version": "3.10.48",
+  "version": "3.10.49",
   "web_accessible_resources": [
     {
       "matches": [
