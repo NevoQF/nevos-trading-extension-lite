@@ -40,6 +40,17 @@
     },
     {
       "js": [
+        "shared/browser_compat.js",
+        "content/trade_page_themes.js"
+      ],
+      "matches": [
+        "https://www.rolimons.com/player/*",
+        "https://rolimons.com/player/*"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "js": [
         "scripts/trade_list_request_patch.js"
       ],
       "matches": [
@@ -216,7 +227,6 @@
   ],
   "description": "Client-side Roblox trading tools. Values from Rolimons. No backend required.",
   "host_permissions": [
-    "<all_urls>",
     "https://api.rolimons.com/*",
     "https://www.rolimons.com/*",
     "https://rolimons.com/*",
@@ -254,7 +264,7 @@
     "activeTab"
   ],
   "short_name": "Nevos LITE",
-  "version": "3.10.49",
+  "version": "3.10.50",
   "web_accessible_resources": [
     {
       "matches": [
