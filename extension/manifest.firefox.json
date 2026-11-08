@@ -14,12 +14,8 @@
       "shared/build_variant.js",
       "shared/rolimons_item_details.js",
       "shared/nte_sales_core.js",
-      "shared/trade_ad_notifications_core.js",
       "background/trade_notification_card.js",
       "background/trade_ads.js",
-      "background/trade_ad_notifications.js",
-      "background/inbound_trade_webhook_preview.js",
-      "background/mass_send.js",
       "background/background.js"
     ]
   },
@@ -81,7 +77,9 @@
       ],
       "matches": [
         "https://www.roblox.com/trades*",
-        "https://www.roblox.com/*/trades*"
+        "https://www.roblox.com/*/trades*",
+        "https://www.roblox.com/users/*/trade*",
+        "https://www.roblox.com/*/users/*/trade*"
       ],
       "run_at": "document_start",
       "world": "MAIN"
@@ -105,6 +103,7 @@
         "shared/username_lookup_guard.js",
         "shared/nte_icon_utils.js",
         "shared/nte_icons.js",
+        "shared/tap_tooltip.js",
         "shared/nte_sales_core.js",
         "content/trade_page.js"
       ],
@@ -308,7 +307,7 @@
     "clipboardWrite"
   ],
   "short_name": "Nevos LITE",
-  "version": "3.10.53",
+  "version": "3.10.54",
   "web_accessible_resources": [
     {
       "matches": [

@@ -37,6 +37,22 @@ if (
   globalThis.fetch = marked_fetch;
 }
 
+// One hung socket must not block the shared trade queue or leave poll flags set.
+function fetch_with_timeout(url, init = {}, ms = 20000) {
+  if (init?.signal || typeof AbortSignal?.timeout !== "function")
+    return fetch(url, init);
+  return fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
+}
+
+// Re-creating an alarm on every worker wake pushes its next fire time back.
+async function nte_ensure_alarm(name, info) {
+  try {
+    let existing = await chrome.alarms.get(name);
+    if (existing && existing.periodInMinutes === info.periodInMinutes) return;
+    await chrome.alarms.create(name, info);
+  } catch {}
+}
+
 const nte_api_client_token = "nte-x7Km2Qp9Wv4s";
 function nte_api_headers(extra) {
   let headers = {
@@ -139,9 +155,11 @@ const item_data_server_fails_key = "itemDataServerFails";
 const item_data_max_age_ms = 60000;
 const item_data_server_fail_fallback = 5;
 const item_data_url = RolimonsItemDetails.ROLIMONS_ITEM_DETAILS_URL;
+const server_item_data_url = "";
 const trade_ad_item_data_max_age_ms = 180000;
 const routility_data_key = "routilityData";
 const routility_data_time_key = "lastRoutilityRequest";
+const routility_data_url = "";
 const extension_update_state_key = "nte_extension_update_state";
 const nte_roblox_tab_url_query_patterns = [
   "https://www.roblox.com/*",
@@ -320,7 +338,7 @@ async function fetch_trade_api(url, init) {
       trade_api_request_times.slice(-TRADE_API_WINDOW_LIMIT * 2),
     );
 
-    let response = await fetch(url, init);
+    let response = await fetch_with_timeout(url, init);
     update_trade_api_rate_limit(response);
     return response;
   });
@@ -367,7 +385,7 @@ async function nte_fetch_inventory_with_retries(url, init, options = {}) {
   let res = null;
   for (let attempt = 0; attempt < max_attempts; attempt++) {
     try {
-      res = await fetch(url, init);
+      res = await fetch_with_timeout(url, init);
     } catch {
       res = null;
     }
@@ -405,7 +423,7 @@ async function nte_fetch_inventory_with_retries(url, init, options = {}) {
 }
 
 async function fetch_trade_api_priority(url, init) {
-  let response = await fetch(url, init);
+  let response = await fetch_with_timeout(url, init);
   update_trade_api_rate_limit(response);
   return response;
 }
@@ -428,11 +446,18 @@ function get_local_values(keys) {
   });
 }
 
+// Resolves true on success, false when storage rejected the write.
+let last_local_set_error = "";
+
 function set_local_value(key, value) {
   return new Promise((resolve) => {
     chrome.storage.local.set({ [key]: value }, () => {
-      if (chrome.runtime.lastError) console.info(chrome.runtime.lastError);
-      resolve();
+      if (chrome.runtime.lastError) {
+        last_local_set_error = String(chrome.runtime.lastError.message || "");
+        console.info(chrome.runtime.lastError);
+        return resolve(false);
+      }
+      resolve(true);
     });
   });
 }
@@ -440,8 +465,11 @@ function set_local_value(key, value) {
 function set_local_values(values) {
   return new Promise((resolve) => {
     chrome.storage.local.set(values, () => {
-      if (chrome.runtime.lastError) console.info(chrome.runtime.lastError);
-      resolve();
+      if (chrome.runtime.lastError) {
+        console.info(chrome.runtime.lastError);
+        return resolve(false);
+      }
+      resolve(true);
     });
   });
 }
@@ -536,9 +564,41 @@ async function get_pruned_cached_trades() {
   return result.cached_trades;
 }
 
+// Finished trades go first; still-pending ones are what decline detection needs.
+function is_finished_cached_trade(trade) {
+  return (
+    trade?.tradeType === "completed" ||
+    trade?.tradeType === "inactive" ||
+    ["Completed", "Declined", "Expired", "Countered", "Inactive"].includes(
+      trade?.status,
+    )
+  );
+}
+
+function get_oldest_cached_trade_ids(cached_trades, count) {
+  return Object.entries(cached_trades)
+    .map(([id, trade]) => [
+      id,
+      parse_trade_cache_time(trade?.__nte_cached_at),
+      is_finished_cached_trade(trade) ? 0 : 1,
+    ])
+    .sort((a, b) => a[2] - b[2] || a[1] - b[1])
+    .slice(0, count)
+    .map(([id]) => id);
+}
+
 async function save_cached_trades(cached_trades) {
   let pruned_cached_trades = prune_cached_trades(cached_trades).cached_trades;
-  await set_local_value(cached_trades_key, pruned_cached_trades);
+  let saved = await set_local_value(cached_trades_key, pruned_cached_trades);
+  if (!saved && /quota/i.test(last_local_set_error)) {
+    // Drop the oldest half and retry once.
+    let trimmed = { ...pruned_cached_trades };
+    let drop_count = Math.ceil(Object.keys(trimmed).length / 2);
+    for (let id of get_oldest_cached_trade_ids(trimmed, drop_count))
+      delete trimmed[id];
+    pruned_cached_trades = trimmed;
+    await set_local_value(cached_trades_key, pruned_cached_trades);
+  }
   return pruned_cached_trades;
 }
 
@@ -550,7 +610,10 @@ function cache_trade_detail(cached_trades, trade_id, trade, now = Date.now()) {
     !(normalized_trade_id in cached_trades) &&
     Object.keys(cached_trades).length >= trade_cache_max_entries
   ) {
-    return false;
+    // Evict the oldest finished entry so new trades keep caching instead of refetching every poll.
+    let [oldest_id] = get_oldest_cached_trade_ids(cached_trades, 1);
+    if (oldest_id === undefined) return false;
+    delete cached_trades[oldest_id];
   }
 
   let previous_trade = cached_trades[normalized_trade_id];
@@ -692,7 +755,7 @@ async function parse_json_response_safe(response, label) {
 async function fetch_item_data() {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      let response = await fetch(item_data_url, {
+      let response = await fetch_with_timeout(item_data_url, {
         headers: { "From-Extension": true },
         cache: "no-store",
       });
@@ -709,6 +772,9 @@ async function fetch_item_data() {
 }
 
 let item_data_retry_promise = null;
+const ITEM_DATA_RETRY_MIN_MS = 1000;
+const ITEM_DATA_RETRY_MAX_MS = 30000;
+const UI_ITEM_DATA_MAX_WAIT_MS = 20000;
 let trade_row_decline_csrf = "";
 let trade_row_decline_csrf_promise = null;
 
@@ -761,6 +827,7 @@ function retry_item_data_until_success() {
   if (item_data_retry_promise) return item_data_retry_promise;
   item_data_retry_promise = (async () => {
     try {
+      let backoff_ms = ITEM_DATA_RETRY_MIN_MS;
       for (;;) {
         if (typeof nte_is_lite !== "function" || !nte_is_lite()) {
           let server_data = await sync_item_data_from_server();
@@ -776,7 +843,8 @@ function retry_item_data_until_success() {
         if (has_item_data(data)) {
           return await cache_item_data(data);
         }
-        await sleep_for(1000);
+        await sleep_for(backoff_ms);
+        backoff_ms = Math.min(backoff_ms * 2, ITEM_DATA_RETRY_MAX_MS);
       }
     } finally {
       item_data_retry_promise = null;
@@ -864,7 +932,11 @@ async function get_trade_ad_notification_item_data() {
 async function get_ui_item_data(max_age_ms = item_data_max_age_ms) {
   let data = await get_cached_item_data(max_age_ms);
   if (has_item_data(data)) return data;
-  return retry_item_data_until_success();
+  // The retry keeps running in the background; the UI gets null instead of waiting forever.
+  let timeout_promise = new Promise((resolve) =>
+    setTimeout(() => resolve(data || null), UI_ITEM_DATA_MAX_WAIT_MS),
+  );
+  return Promise.race([retry_item_data_until_success(), timeout_promise]);
 }
 
 async function trade_row_get_csrf(force_refresh = false) {
@@ -990,9 +1062,11 @@ function ensure_notification_click_handler() {
     on_clicked.addListener((notification_id) => {
       if (notification_id.startsWith(trade_notification_prefix)) {
         chrome.tabs.create({ url: trade_notification_tab_url(notification_id) });
+        chrome.notifications.clear(notification_id);
         return;
       }
       if (notification_id.startsWith(trade_ads_notification_prefix)) {
+        chrome.notifications.clear(notification_id);
         let rest = notification_id.slice(trade_ads_notification_prefix.length);
         let m = /^u(\d+)_/.exec(rest);
         if (m) {
@@ -1554,16 +1628,19 @@ async function show_trade_notification(
       return false;
   }
 
-  if (!chrome.notifications?.create) return false;
-  if (!(await can_use_notifications())) return false;
+  // Returns true when the trade is new (reserved), even if no desktop
+  // notification could be shown, so callers can still send the webhook.
   if (!(await reserve_trade_notification(trade, trade_type))) return false;
+  if (!chrome.notifications?.create) return true;
+  if (!(await can_use_notifications())) return true;
 
   let icon_url = "assets/icons/logo128.png";
 
   try {
-    let thumbnail_response = await fetch(
+    let thumbnail_response = await fetch_with_timeout(
       `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${trade.user.id}&size=150x150&format=Png&isCircular=true`,
       { credentials: "include" },
+      5000,
     );
     let thumbnail_data = await thumbnail_response.json();
     let remote = thumbnail_data?.data?.[0]?.imageUrl;
@@ -1632,15 +1709,23 @@ async function show_trade_notification(
       }
     : null;
   if (rich) await remember_trade_notification_user(notification_id, trade);
-  let create = (opts, on_error) =>
-    chrome.notifications.create(notification_id, opts, () => {
-      if (chrome.runtime.lastError) on_error(chrome.runtime.lastError);
+  let create = (opts) =>
+    new Promise((resolve) =>
+      chrome.notifications.create(notification_id, opts, () => {
+        let err = chrome.runtime.lastError;
+        if (err)
+          console.info("Nevos Trading Extension: notification create failed", err);
+        resolve(!err);
+      }),
+    );
+  // Image/buttons unsupported here: fall back to the plain text version.
+  let created = await create(rich || basic);
+  // The remote avatar can be what failed, so the fallback uses the bundled icon.
+  if (!created && rich)
+    created = await create({
+      ...basic,
+      iconUrl: extension_notification_icon_url("assets/icons/logo128.png"),
     });
-  create(rich || basic, (err) => {
-    // Image/buttons unsupported here: show the plain text version instead.
-    if (rich) return create(basic, (e) => console.info("Nevos Trading Extension: notification create failed", e));
-    console.info("Nevos Trading Extension: notification create failed", err);
-  });
   return true;
 }
 
@@ -1683,6 +1768,7 @@ const TRADE_CACHE_ALARM_PERIOD_MINUTES = 0.5;
 const inbound_poll_alarm_name = "inboundPollAlarm";
 const inbound_poll_state_key = "inboundPollState";
 const trade_status_seed_key = "tradeStatusNotificationSeed";
+const trade_status_last_poll_key = "tradeStatusLastPollAt";
 const self_declined_trade_ids_key = "selfDeclinedTradeIds";
 const locked_trade_ids_key = "nteLockedTradeIds";
 const INBOUND_POLL_STALE_GAP_MS = 15 * 60 * 1000;
@@ -1963,7 +2049,7 @@ async function poll_inbound_trades() {
           continue;
       }
 
-      let notification_shown = await show_trade_notification(
+      let is_new_trade = await show_trade_notification(
         trade,
         "inbound",
         detail,
@@ -1991,7 +2077,7 @@ function ensure_inbound_poll_timer() {
   poll_inbound_trades();
 }
 
-chrome.alarms.create(inbound_poll_alarm_name, {
+nte_ensure_alarm(inbound_poll_alarm_name, {
   delayInMinutes: 0.1,
   periodInMinutes: 0.5,
 });
@@ -2018,12 +2104,13 @@ async function fetch_trade_page(
   cached_trades,
   sent_notifications,
   trade_status_seed_state,
+  suppress_declined = false,
 ) {
   let response = await fetch_trade_api(
     `https://trades.roblox.com/v1/trades/${trade_type}?limit=100&sortOrder=Desc`,
     { credentials: "include" },
   );
-  if (response.status !== 200) return;
+  if (response.status !== 200) return false;
 
   let payload = await response.json();
   let dirty = false;
@@ -2048,6 +2135,17 @@ async function fetch_trade_page(
       continue;
     }
 
+    // While suppressing old declines, still record the new status so a failed
+    // detail fetch can't leave the trade "outbound" to fire on the next poll.
+    let cache_list_row = () => {
+      if (!suppress_declined || trade_type !== "inactive" || !existing) return;
+      // Keep the old status so the next poll still fetches details (silently).
+      cache_trade_detail(cached_trades, trade.id, {
+        ...existing,
+        tradeType: trade_type,
+      });
+      dirty = true;
+    };
     let notification_checked_at = Date.now();
     await new Promise((r) => setTimeout(r, TRADE_STATUS_DETAIL_DELAY_MS));
     // v2 like Roblox's own page: a cached v1 body can't be served to it, and
@@ -2059,10 +2157,14 @@ async function fetch_trade_page(
       },
     );
     if (full_response.status === 429) {
+      cache_list_row();
       await new Promise((r) => setTimeout(r, 15000));
       continue;
     }
-    if (full_response.status !== 200) continue;
+    if (full_response.status !== 200) {
+      cache_list_row();
+      continue;
+    }
 
     // v2 has no id/user/created; keep the list row's copy of those.
     let full_trade = {
@@ -2081,7 +2183,7 @@ async function fetch_trade_page(
       trade_type === "inactive" && (await consume_self_declined_trade(trade.id));
     let should_notify =
       trade_type === "inactive"
-        ? previous_type === "outbound" && !self_declined
+        ? previous_type === "outbound" && !self_declined && !suppress_declined
         : (previous_type && previous_type !== trade_type) ||
           trade_type !== "inactive";
 
@@ -2127,6 +2229,7 @@ async function fetch_trade_page(
   }
 
   if (dirty) await save_cached_trades(cached_trades);
+  return true;
 }
 
 async function refresh_trade_cache() {
@@ -2147,15 +2250,30 @@ async function refresh_trade_cache() {
     if (completed_notifs) trade_types.push("completed");
     if (declined_notifs) trade_types.push("inactive");
 
+    // After a long gap (browser closed) old declines would fire as new; cache them silently.
+    // Tracked per trade type so one failing page can't freeze the others.
+    let saved_poll_times = await get_local_value(trade_status_last_poll_key);
+    let last_poll_times =
+      saved_poll_times && typeof saved_poll_times === "object"
+        ? { ...saved_poll_times }
+        : typeof saved_poll_times === "number"
+          ? { inactive: saved_poll_times } // pre-per-type format
+          : {};
+    let last_poll_at = Number(last_poll_times.inactive) || 0;
+    let suppress_declined =
+      last_poll_at > 0 && Date.now() - last_poll_at > INBOUND_POLL_STALE_GAP_MS;
     for (let trade_type of trade_types) {
       if (sent_notifications.count >= 20) break;
-      await fetch_trade_page(
+      let page_ok = await fetch_trade_page(
         trade_type,
         cached_trades,
         sent_notifications,
         trade_status_seed_state,
-      );
+        suppress_declined,
+      ).catch(() => false);
+      if (page_ok) last_poll_times[trade_type] = Date.now();
     }
+    await set_local_value(trade_status_last_poll_key, last_poll_times);
     if (trade_status_seed_state.__dirty) {
       delete trade_status_seed_state.__dirty;
       await save_trade_status_seed_state(trade_status_seed_state);
@@ -2357,7 +2475,7 @@ async function fetch_rolimons_html(url) {
 }
 
 async function fetch_authenticated_user() {
-  let response = await fetch(
+  let response = await fetch_with_timeout(
     "https://users.roblox.com/v1/users/authenticated",
     {
       credentials: "include",
@@ -2854,7 +2972,7 @@ async function fetch_rolimons_player_face_map() {
   ) {
     return rolimons_player_face_map_cache;
   }
-  let res = await fetch(
+  let res = await fetch_with_timeout(
     "https://api.rolimons.com/items/v1/faceassetbundlemap",
     { cache: "no-store" },
   );
@@ -2907,7 +3025,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
 
   if (message === "getTradeListData") {
-    (async () => respond(await get_pruned_cached_trades()))();
+    (async () => respond(await get_pruned_cached_trades()))().catch(() =>
+      respond({}),
+    );
     return true;
   }
 
@@ -2918,7 +3038,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       let cached = await get_pruned_cached_trades();
       let trade = cached[id] || null;
       respond(trade ? await get_priced_cached_trade(trade) : null);
-    })();
+    })().catch(() => respond(null));
     return true;
   }
 
@@ -2927,7 +3047,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       let trade = message.trade;
       if (!trade || typeof trade !== "object") return respond(null);
       respond(await get_priced_cached_trade(trade));
-    })();
+    })().catch(() => respond(null));
     return true;
   }
 
@@ -3064,6 +3184,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
 
+
   if (message?.title === "getUserProfileData") {
     (async () => {
       try {
@@ -3129,12 +3250,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
 
+
   if (message?.type === "getItemSalesData") {
     get_item_sales_data(message)
       .then(respond)
       .catch(() => respond({ ok: false }));
     return true;
   }
+
+
+
 
   if (message?.type === "ta_start") {
     ta_run_action(
@@ -3211,6 +3336,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     );
     return true;
   }
+
 
   if (message?.type === "rolimons_player_info") {
     (async () => {
@@ -3330,7 +3456,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   return false;
 });
 
-chrome.alarms.create(trade_cache_alarm_name, {
+nte_ensure_alarm(trade_cache_alarm_name, {
   delayInMinutes: TRADE_CACHE_ALARM_DELAY_MINUTES,
   periodInMinutes: TRADE_CACHE_ALARM_PERIOD_MINUTES,
 });
@@ -3549,7 +3675,7 @@ async function ta_wait_for_rate_limit(resp) {
 }
 
 async function ta_get_csrf() {
-  let resp = await fetch("https://auth.roblox.com/v2/logout", {
+  let resp = await fetch_with_timeout("https://auth.roblox.com/v2/logout", {
     method: "POST",
     credentials: "include",
   });
@@ -4037,3 +4163,8 @@ chrome.runtime.onUpdateAvailable?.addListener((details) => {
   ensure_default_options();
   await clear_stale_extension_update_state();
 })();
+
+// Run last so every helper exists in both importScripts (Chrome) and manifest-order (Firefox) loading.
+if (typeof trade_ad_notif_init_monitor === "function")
+  trade_ad_notif_init_monitor();
+trade_ads_sync_alarm().catch(() => {});
