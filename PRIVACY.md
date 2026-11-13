@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: Jul 10, 2026
+Last updated: Nov 13, 2026
 
 The extension is designed to run in the browser and keep ordinary settings and feature state in local browser extension storage.
 
@@ -15,6 +15,12 @@ If you choose to save a 2FA secret, it is stored in your browser extension stora
 ## Remote requests
 
 LITE contacts Roblox and Rolimons over HTTPS for item values, trade-page helpers, Rolimons trade-ad posting, and related client-side features. It does not contact nevos-extension.com APIs, Routility, or roautotrade.com.
+
+## Problem reports
+
+The popup's "Report a problem" builds a report for you to copy and paste into our Discord. It contains what you typed plus the parts you leave ticked: diagnostics (extension version, browser, settings you changed, and the extension's last errors and failed requests, with addresses cut to host and path) and page details (page address and title, window size). The popup shows exactly what is in it.
+
+LITE never sends a report anywhere. Until you copy one, the last errors and failed requests stay in browser session storage, which the browser clears when it closes.
 
 ## No sale of user data
 
