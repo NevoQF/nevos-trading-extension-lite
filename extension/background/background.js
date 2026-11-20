@@ -926,7 +926,7 @@ async function get_cached_item_data(max_age_ms = item_data_max_age_ms) {
   return item_data_refresh_promise;
 }
 
-async function get_trade_ad_notification_item_data() {
+async function get_trade_ad_notification_item_data() {
   return get_cached_item_data(trade_ad_item_data_max_age_ms);
 }
 
@@ -2058,7 +2058,7 @@ async function poll_inbound_trades() {
           detail,
           trade_stats,
           my_user_id,
-        );
+        );
       } catch (e) {
         console.warn("NTE inbound poll: trade failed", trade?.id, e);
       }
@@ -2500,7 +2500,7 @@ async function fetch_authenticated_user() {
     name: String(data?.name || data?.displayName || "You"),
   };
 }
-
+
 
 // rolimons lane: open -> backing off after Rolimons answers 429/403 (60 s, doubling to 10 min) -> open.
 // Player and UAID lookups run one at a time, >= 300 ms apart: a 400-row trade list used to fire them
